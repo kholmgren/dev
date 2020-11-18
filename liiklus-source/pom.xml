@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.kettil.fn</groupId>
-    <artifactId>liiklus-sink</artifactId>
+    <artifactId>liiklus-source</artifactId>
     <version>1.0</version>
 
     <properties>
