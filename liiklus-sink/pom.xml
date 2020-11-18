@@ -28,7 +28,12 @@
         <dependency>
             <groupId>com.salesforce.servicelibs</groupId>
             <artifactId>reactor-grpc</artifactId>
-            <version>0.9.0</version>
+            <version>0.10.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.salesforce.servicelibs</groupId>
+            <artifactId>reactor-grpc-stub</artifactId>
+            <version>0.10.0</version>
         </dependency>
 
         <dependency>
@@ -62,6 +67,11 @@
             <artifactId>lombok</artifactId>
             <version>1.18.16</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.2.3</version>
         </dependency>
     </dependencies>
 
@@ -97,6 +107,15 @@
                     <pluginId>grpc-java</pluginId>
                     <protocArtifact>com.google.protobuf:protoc:3.12.0:exe:${os.detected.classifier}</protocArtifact>
                     <pluginArtifact>io.grpc:protoc-gen-grpc-java:1.33.1:exe:${os.detected.classifier}</pluginArtifact>
+                    <protocPlugins>
+                        <protocPlugin>
+                            <id>reactor-grpc</id>
+                            <groupId>com.salesforce.servicelibs</groupId>
+                            <artifactId>reactor-grpc</artifactId>
+                            <version>0.8.2</version>
+                            <mainClass>com.salesforce.reactorgrpc.ReactorGrpcGenerator</mainClass>
+                        </protocPlugin>
+                    </protocPlugins>
                 </configuration>
                 <executions>
                     <execution>
