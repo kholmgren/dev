@@ -1,0 +1,5 @@
+spring:
+  cloud:
+    function:
+      location: ${fn.location}
+      function-class: ${fn.name}

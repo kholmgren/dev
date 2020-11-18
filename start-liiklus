@@ -1,0 +1,4 @@
+#!/bin/bash
+
+docker run -it -e storage_positions_type=MEMORY -e storage_records_type=MEMORY -p 6565:6565 bsideup/liiklus
+
