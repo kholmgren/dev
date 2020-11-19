@@ -14,6 +14,8 @@ import org.springframework.cloud.function.context.FunctionProperties;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -107,7 +109,9 @@ public class FnStreamingController implements CommandLineRunner {
                                                                 .setDataContentType("application/json")
                                                                 .setData(ByteString.copyFrom(mapper.writeValueAsBytes(result)))
                                                 )
-                                                .build());
+                                                .build())
+                                        .block(Duration.of(1000, ChronoUnit.MILLIS));
+
                             } catch (IOException e) {
                                 e.printStackTrace();
                             } finally {

@@ -1,35 +1,43 @@
 package io.kettil.fn.liiklus;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.bsideup.liiklus.protocol.*;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 import lombok.Data;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.reactivestreams.Publisher;
 import picocli.CommandLine;
-import reactor.core.publisher.Mono;
 
-import java.time.Duration;
+import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
-import java.util.function.Function;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Data
+@CommandLine.Command(
+        name = "liiklus-sink",
+        mixinStandardHelpOptions = true,
+        version = "1.0",
+        description = "displays events from liiklus")
 public class Sink implements Runnable {
-    @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, description = "display a help message")
-    private boolean helpRequested = false;
+    @CommandLine.Option(names = {"--host"}, description = "liiklus host", defaultValue = "localhost")
+    private String liiklusHost;
 
-    String host = "localhost";
+    @CommandLine.Option(names = {"--port"}, description = "liiklus port", defaultValue = "6565")
+    private int liiklusPort;
 
-    @CommandLine.Option(names = {"-p", "--port"}, description = "liiklus port", defaultValue = "6565")
-    private int port;
-
-    @CommandLine.Parameters(paramLabel = "TOPIC", description = "liiklus topic", defaultValue = "fn-topic")
+    @CommandLine.Parameters(paramLabel = "TOPIC", description = "liiklus topic", defaultValue = "fn-input-topic")
     String topic;
 
-    @CommandLine.Parameters(paramLabel = "GROUP", description = "liiklus group", defaultValue = "fn-group")
+    @CommandLine.Parameters(paramLabel = "GROUP", description = "liiklus group", defaultValue = "fn-input-group")
     String group;
+
+    private ObjectMapper mapper = new ObjectMapper()
+            .registerModule(new Jdk8Module())
+            .registerModule(new JavaTimeModule());
 
     public static void main(String[] args) {
         new CommandLine(new Sink()).execute(args);
@@ -39,69 +47,71 @@ public class Sink implements Runnable {
 
     @SneakyThrows
     public void run() {
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            log.info("shutting down");
-            latch.countDown();
-        }));
-
-        ManagedChannel channel = NettyChannelBuilder.forTarget(host + ":" + port)
+        ManagedChannel channel = NettyChannelBuilder.forTarget(liiklusHost + ":" + liiklusPort)
                 .directExecutor()
                 .usePlaintext()
                 .build();
 
-        log.info("opened channel");
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("shutting down");
 
-        SubscribeRequest subscribeAction = SubscribeRequest.newBuilder()
-                .setTopic(topic)
-                .setGroup(group)
-                .setAutoOffsetReset(SubscribeRequest.AutoOffsetReset.EARLIEST)
-                .build();
+            channel.shutdown();
+
+            try {
+                channel.awaitTermination(1000, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                // Already in shutdown hook--don't call Thread.currentThread().interrupt()
+            } finally {
+                channel.shutdownNow();
+            }
+
+            latch.countDown();
+        }));
+
+        log.info("opened channel");
 
         ReactorLiiklusServiceGrpc.ReactorLiiklusServiceStub stub = ReactorLiiklusServiceGrpc.newReactorStub(channel);
 
         log.info("created service stub");
 
-        // Consume the events
-        Function<Integer, Function<ReceiveReply.Record, Publisher<?>>> businessLogic = partition -> record -> {
-            log.info("Processing record from partition {} offset {}", partition, record.getOffset());
+        SubscribeRequest inSubscribeRequest = SubscribeRequest.newBuilder()
+                .setTopic(topic)
+                .setGroup(group)
+                .setAutoOffsetReset(SubscribeRequest.AutoOffsetReset.LATEST)
+                .build();
 
-            // simulate processing
-            return Mono.delay(Duration.ofMillis(200));
-        };
-
-        stub
-                .subscribe(subscribeAction)
+        stub.subscribe(inSubscribeRequest)
                 .filter(it -> it.getReplyCase() == SubscribeReply.ReplyCase.ASSIGNMENT)
                 .map(SubscribeReply::getAssignment)
                 .doOnNext(assignment -> log.info("Assigned to partition {}", assignment.getPartition()))
                 .flatMap(assignment -> stub
-                        // Start receiving the events from a partition
-                        .receive(ReceiveRequest.newBuilder().setAssignment(assignment).build())
-                        .window(2) // ACK every nth record
-                        .concatMap(
-                                batch -> batch
-                                        .map(ReceiveReply::getRecord)
-                                        .delayUntil(businessLogic.apply(assignment.getPartition()))
-                                        .sample(Duration.ofSeconds(5)) // ACK every 5 seconds
-                                        .onBackpressureLatest()
-                                        .delayUntil(record -> {
-                                            log.info("ACKing partition {} offset {}", assignment.getPartition(), record.getOffset());
-                                            return stub.ack(
-                                                    AckRequest.newBuilder()
-                                                            .setTopic(subscribeAction.getTopic())
-                                                            .setGroup(subscribeAction.getGroup())
-                                                            .setGroupVersion(subscribeAction.getGroupVersion())
-                                                            .setPartition(assignment.getPartition())
-                                                            .setOffset(record.getOffset())
-                                                            .build()
-                                            );
-                                        }),
-                                1
-                        )
-                )
-                .blockLast();
+                        .receive(ReceiveRequest.newBuilder().setAssignment(assignment).setFormat(ReceiveRequest.ContentFormat.LIIKLUS_EVENT).build())
+                        .map(ReceiveReply::getLiiklusEventRecord)
+                        .doOnNext(record -> {
+                            try {
+                                Object value = mapper.readValue(record.getEvent().getData().toByteArray(), Object.class);
+                                System.out.println(value);
 
-        log.info("complete");
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            } finally {
+                                log.debug("ACKing partition {} offset {}", assignment.getPartition(), record.getOffset());
+                                stub.ack(
+                                        AckRequest.newBuilder()
+                                                .setTopic(inSubscribeRequest.getTopic())
+                                                .setGroup(inSubscribeRequest.getGroup())
+                                                .setGroupVersion(inSubscribeRequest.getGroupVersion())
+                                                .setPartition(assignment.getPartition())
+                                                .setOffset(record.getOffset())
+                                                .build()
+                                );
+                            }
+                        })
+                )
+                .doOnTerminate(latch::countDown)
+                .subscribe();
+
+        log.info("running");
 
         latch.await();
     }
