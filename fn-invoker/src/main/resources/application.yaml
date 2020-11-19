@@ -1,3 +1,12 @@
+fn:
+  in-topic: fn-topic
+  in-group: fn-group
+  out-topic: ${fn.in-topic}}
+
+liiklus:
+  host: localhost
+  port: 6565
+
 spring:
   cloud:
     function:

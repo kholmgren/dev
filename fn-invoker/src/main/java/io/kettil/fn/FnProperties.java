@@ -17,5 +17,13 @@ public class FnProperties {
 
     @NotNull
     private String name;
-}
 
+    @NotNull
+    private String inTopic;
+
+    @NotNull
+    private String inGroup;
+
+    @NotNull
+    private String outTopic;
+}

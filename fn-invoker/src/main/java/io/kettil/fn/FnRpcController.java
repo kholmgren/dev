@@ -10,11 +10,11 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.function.Function;
 
 @RestController
-public class FnController {
+public class FnRpcController {
     private final FunctionCatalog catalog;
     private final FunctionProperties functionProperties;
 
-    public FnController(FunctionCatalog functionCatalog, FunctionProperties functionProperties) {
+    public FnRpcController(FunctionCatalog functionCatalog, FunctionProperties functionProperties) {
         this.catalog = functionCatalog;
         this.functionProperties = functionProperties;
     }
@@ -22,6 +22,6 @@ public class FnController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Object invoke(@RequestBody Object value) {
         Function<Object, Object> objectFunction = catalog.lookup(functionProperties.getDefinition());
-        return ">>" + objectFunction.apply(value) + "<<";
+        return objectFunction.apply(value);
     }
 }

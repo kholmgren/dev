@@ -1,3 +1,9 @@
-location: target/derp-1.0-SNAPSHOT.jar
-name: io.kettil.Derp
 runtime: java8
+
+location: target/derp-1.0-SNAPSHOT.jar
+class-name: io.kettil.Derp
+
+stream:
+  in-topic: fn-input-topic
+  in-group: fn-input-group
+  out-topic: fn-output-topic

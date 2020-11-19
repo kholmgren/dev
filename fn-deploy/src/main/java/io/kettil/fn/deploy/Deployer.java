@@ -2,7 +2,7 @@ package io.kettil.fn.deploy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
-import io.kettil.fn.deploy.model.Manifest;
+import io.kettil.fn.deploy.model.ManifestProps;
 import io.kettil.fn.deploy.model.ManifestRuntimes;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -29,9 +29,14 @@ public class Deployer implements Callable<Integer> {
     @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, description = "display a help message")
     private boolean helpRequested = false;
 
-    @CommandLine.Option(names = {"-i", "--invoker-jar"}, description = "invoker jar file", defaultValue = "../fn-invoker/target/fn-invoker-1.0.jar")
+    @CommandLine.Option(names = {"--invoker-jar"}, description = "invoker jar file", defaultValue = "../fn-invoker/target/fn-invoker-1.0.jar")
     private File invokerJar;
 
+    @CommandLine.Option(names = {"--host"}, description = "liiklus host", defaultValue = "localhost")
+    private String liiklusHost;
+
+    @CommandLine.Option(names = {"--port"}, description = "liiklus port", defaultValue = "6565")
+    private int liiklusPort;
 
     @CommandLine.Parameters(paramLabel = "DIR", description = "function repo dir")
     String dir;
@@ -61,7 +66,7 @@ public class Deployer implements Callable<Integer> {
         ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
         mapper.findAndRegisterModules();
 
-        Manifest manifest = mapper.readValue(manifestPath.toFile(), Manifest.class);
+        ManifestProps manifest = mapper.readValue(manifestPath.toFile(), ManifestProps.class);
         Path location = manifestPath.getParent().resolve(manifest.getLocation().toPath());
 
         if (Files.notExists(location)) {
@@ -79,7 +84,7 @@ public class Deployer implements Callable<Integer> {
             return 1;
         }
 
-        System.out.println("Using runtime " + rt + " and artefact: " + location);
+        System.out.println("Using runtime " + rt + " and class " + manifest.getClassName() + " in artifact: " + location);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("shutting down");
@@ -92,16 +97,16 @@ public class Deployer implements Callable<Integer> {
         Path sourceFunctionJar = location.toAbsolutePath().normalize();
         String functionJar = "fn.jar";
 
-        Map<String, String> env = new LinkedHashMap<>();
-        env.put("FN_NAME", manifest.getName());
-        env.put("FN_LOCATION", functionJar);
+        Map<String, String> imageEnv = new LinkedHashMap<>();
+        imageEnv.put("FN_NAME", manifest.getClassName());
+        imageEnv.put("FN_LOCATION", functionJar);
 
         DockerfileBuilder dockerfileBuilder = new DockerfileBuilder();
         String dockerFile = dockerfileBuilder
                 .from("openjdk:8-jdk-alpine")
                 .copy(invokerJar, invokerJar)
                 .copy(functionJar, functionJar)
-                .env(env)
+                .env(imageEnv)
                 .cmd("java", "-jar", invokerJar)
                 .build();
 
@@ -113,9 +118,18 @@ public class Deployer implements Callable<Integer> {
                 .withFileFromPath(invokerJar, sourceInvokerJar)
                 .withFileFromPath(functionJar, sourceFunctionJar);
 
+
+        Map<String, String> containerEnv = new LinkedHashMap<>();
+        containerEnv.put("FN_IN_TOPIC", manifest.getStream().getInTopic());
+        containerEnv.put("FN_IN_GROUP", manifest.getStream().getInGroup());
+        containerEnv.put("FN_OUT_TOPIC", manifest.getStream().getOutTopic());
+        containerEnv.put("LIIKLUS_HOST", liiklusHost);
+        containerEnv.put("LIIKLUS_PORT", Integer.toString(liiklusPort));
+
         try (GenericContainer container = new GenericContainer(image)) {
             log.info("Starting container");
 
+            container.withEnv(containerEnv);
             container.start();
 
             Slf4jLogConsumer logConsumer = new Slf4jLogConsumer(log);
