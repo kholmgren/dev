@@ -9,7 +9,6 @@
     <version>1.0</version>
 
     <properties>
-        <java.version>8</java.version>
     </properties>
 
     <dependencies>
@@ -89,7 +88,10 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.8.1</version>
                 <configuration>
-                    <release>${java.version}</release>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                    <verbose>true</verbose>
+
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
